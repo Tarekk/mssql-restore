@@ -1,0 +1,29 @@
+version: "3.8"
+
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=${MSSQL_PASSWORD}
+    ports:
+      - "${MSSQL_PORT}:1433"
+    volumes:
+      - ./data/mssql:/var/opt/mssql/data
+      - shared_backup_volume:/shared_backup
+
+  ingestion:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ${BACKUP_WATCH_DIR:-./data/backups}:/data/backups
+      - shared_backup_volume:/shared_backup
+    environment:
+      - MSSQL_SERVER=mssql
+      - MSSQL_PASSWORD=${MSSQL_PASSWORD}
+    depends_on:
+      - mssql
+
+volumes:
+  shared_backup_volume:
