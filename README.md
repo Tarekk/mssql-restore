@@ -1,81 +1,73 @@
-# MSSQL Backup Tool
+# MSSQL Restore Tool
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A tool for processing MSSQL backup files following Unix philosophy principles. The tool accepts input via STDIN and produces output via STDOUT in a structured JSON format.
+A tool for restoring MSSQL database backups. Follows Unix philosophy with standardized JSON I/O that makes it composable with other tools.
 
 ## 🚀 Features
 
-  - **Uniform Interface**: Uses structured JSON I/O following Unix pipe principles
-  - **Flexible Resource Handling**: Supports various input sources (local files, HTTP, S3)
-  - **Standardized Error Handling**: Consistent error reporting and exit codes
-  - **Format Support**: Processes both RAR archives and DAT backup files
-  - **Extraction & Restoration**: Automatically extracts archives and restores databases
-  - **Comprehensive Logging**: Detailed, configurable logging
+- **Dual Operation Modes**: Run as a file monitor or CLI tool
+- **Docker-ready**: Designed to run in containers with MSSQL
+- **Automatic Extraction**: Handles RAR archives containing database backups
+- **Flexible Input**: Supports various resource types (local files, HTTP, S3)
+- **Structured JSON I/O**: Clean input/output format for easy integration
 
-## 📋 Installation
+## 🐳 Docker Setup (Recommended)
 
-### Clone Repository
+The recommended way to use this tool is with Docker, which handles all dependencies and connectivity to MSSQL.
 
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/mssql-backup-tool.git
-cd mssql-backup-tool
+### Quick Start
 
-# Install dependencies
-pip install -r requirements.txt
-```
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/yourusername/mssql-restore.git
+   cd mssql-restore
+   ```
 
-### Using Docker
+2. Start the MSSQL server and monitoring service:
+   ```bash
+   docker-compose up -d
+   ```
 
-```bash
-# Build the Docker image
-docker build -t mssql-backup-tool -f Dockerfile .
-
-# Run the container with a command
-cat restore_command.json | docker run -i \
-    -v /path/to/backups:/data/backups \
-    -e MSSQL_SERVER=mssql \
-    -e MSSQL_PASSWORD=yourpassword \
-    mssql-backup-tool
-```
-
-## 🛠️ Configuration
-
-Configuration is handled through environment variables or a `.env` file:
-
-### Core Settings
-
-| Environment Variable | Description                           | Default          |
-| -------------------- | ------------------------------------- | ---------------- |
-| `BACKUP_SHARED_DIR`  | Shared directory for database backups | `/shared_backup` |
-| `LOG_LEVEL`          | Logging level                         | `INFO`           |
-
-### MSSQL Settings
-
-| Environment Variable | Description                   | Default     |
-| -------------------- | ----------------------------- | ----------- |
-| `MSSQL_SERVER`       | MSSQL server hostname or IP   | `localhost` |
-| `MSSQL_PORT`         | MSSQL server port             | `1433`      |
-| `MSSQL_USER`         | MSSQL username                | `sa`        |
-| `MSSQL_PASSWORD`     | MSSQL password                | (Required)  |
-| `MSSQL_TIMEOUT`      | Connection timeout in seconds | `60`        |
+3. Place backup files (RAR or DAT) in the `data_backups` directory and they will be automatically processed.
 
 ## 📝 Usage
 
-### Using the CLI Tool
+### Monitor Mode (Default)
 
-The tool accepts JSON commands via STDIN and outputs JSON results via STDOUT:
+In monitor mode, the tool watches the `data_backups` directory for new backup files and automatically processes them:
+
+1. Start services with monitoring enabled:
+   ```bash
+   docker-compose up -d
+   ```
+
+2. Copy your backup files to the `data_backups` directory.
+
+3. The tool will automatically:
+   - Detect new backup files
+   - Extract RAR archives if needed
+   - Restore the database to MSSQL
+   - Move processed files to the archived directory
+
+4. Check logs for processing status:
+   ```bash
+   docker-compose logs -f backup-tool
+   ```
+
+### CLI Mode (One-time Restore)
+
+For one-time operations, use CLI mode to process a specific backup file:
 
 ```bash
-# Restore a local backup file
-echo '{"command": "restore", "resource": "file:///path/to/backup.dat", "options": {"database_name": "my_database"}}' | python -m tool
-
-# Restore a backup from an HTTP URL
-echo '{"command": "restore", "resource": "https://example.com/backup.rar"}' | python -m tool
+# Process a backup file with full path specification
+echo '{"command": "restore", "resource": "file:///data/input/test.rar"}' | \
+  docker-compose run --rm -T -e TOOL_MODE=cli backup-tool
 ```
 
 ### Command Format
+
+The tool accepts JSON commands via STDIN:
 
 ```json
 {
@@ -90,70 +82,57 @@ echo '{"command": "restore", "resource": "https://example.com/backup.rar"}' | py
 
 ### Resource URI Formats
 
-  - Local file: `file:///path/to/backup.dat`
-  - HTTP(S): `https://example.com/backup.rar`
-  - S3: `s3://bucket/path/to/backup.dat?region=us-west-2`
+- Local file: `file:///data/input/backup.rar`
+- HTTP(S): `https://example.com/backup.rar`
+- S3: `s3://bucket/path/to/backup.dat?region=us-west-2`
 
-### Output Format
+## 🛠️ Configuration
 
-The tool outputs structured JSON messages:
+Configuration is handled through environment variables in the `docker-compose.yaml` file.
 
-```json
-{
-  "type": "progress|result|error",
-  "timestamp": "ISO8601 timestamp",
-  "status": "processing|success|failed",
-  "message": "Human-readable message",
-  "data": {
-    /* type-specific payload */
-  }
-}
+### Key Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `TOOL_MODE` | Operation mode (`monitor` or `cli`) | `monitor` |
+| `MSSQL_PASSWORD` | SQL Server password | `YourPassword123!` |
+| `BACKUP_WATCH_DIR` | Directory to monitor for new backups | `/data/input` |
+| `BACKUP_SHARED_DIR` | Shared directory for database backups | `/shared_backup` |
+| `APP_LOG_LEVEL` | Logging level (INFO, DEBUG, etc.) | `INFO` |
+
+## 🖥️ Local Installation (Advanced)
+
+While Docker is recommended, you can install locally with these prerequisites:
+
+- Python 3.8+
+- MSSQL ODBC drivers
+- UnRAR and p7zip utilities
+- freetds (for MSSQL connectivity)
+
+```bash
+# Install system dependencies (Ubuntu example)
+apt-get install -y python3 python3-pip unixodbc unixodbc-dev unrar p7zip-full p7zip-rar freetds-bin freetds-dev
+
+# Install Microsoft ODBC Driver
+curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add -
+curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list > /etc/apt/sources.list.d/mssql-release.list
+apt-get update
+ACCEPT_EULA=Y apt-get install -y msodbcsql18
+
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Run the tool
+cat command.json | python -m tool
 ```
 
-### Exit Codes
+## 📂 Directory Structure
 
-  - `0`: Success
-  - `1`: General error
-  - `130`: Interrupted (SIGINT)
-
-## 🐳 Docker Compose Example
-
-```yaml
-version: "3.8"
-
-services:
-  mssql:
-    image: mcr.microsoft.com/mssql/server:2019-latest
-    environment:
-      - ACCEPT_EULA=Y
-      - SA_PASSWORD=${MSSQL_PASSWORD:-YourPassword123!}
-    ports:
-      - "${MSSQL_PORT:-1433}:1433"
-    volumes:
-      - ./data/mssql:/var/opt/mssql/data
-      - shared_backup_volume:/shared_backup
-
-  backup-tool:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - ./data_backups:/data/input
-      - shared_backup_volume:/shared_backup
-    environment:
-      - MSSQL_SERVER=mssql
-      - MSSQL_USER=sa
-      - MSSQL_PASSWORD=${MSSQL_PASSWORD:-YourPassword123!}
-      - BACKUP_SHARED_DIR=/shared_backup
-    # This service is designed to be invoked via Docker exec with STDIN
-
-volumes:
-  shared_backup_volume:
-```
-
-## 🤝 Contributing
-
-Contributions are welcome!
+- `data/mssql/`: MSSQL data files (mounted to container)
+- `data_backups/`: Place backup files here for processing
+- `data_backups/archived/`: Successfully processed backups
+- `logs/`: Application logs
+- `tool/`: Python source code
 
 ## 📄 License
 
