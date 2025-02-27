@@ -1,20 +1,17 @@
-# MSSQL Backup Ingestion Service
+# MSSQL Backup Tool
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A robust, production-ready service for automated processing of MSSQL backup files. The service monitors directories for new backup files (RAR or DAT), extracts them if necessary, restores them to a running SQL Server instance, and archives processed files locally.
+A tool for processing MSSQL backup files following Unix philosophy principles. The tool accepts input via STDIN and produces output via STDOUT in a structured JSON format.
 
 ## 🚀 Features
 
-  - **Automatic Monitoring**: Monitors directories for new backup files
+  - **Uniform Interface**: Uses structured JSON I/O following Unix pipe principles
+  - **Flexible Resource Handling**: Supports various input sources (local files, HTTP, S3)
+  - **Standardized Error Handling**: Consistent error reporting and exit codes
   - **Format Support**: Processes both RAR archives and DAT backup files
   - **Extraction & Restoration**: Automatically extracts archives and restores databases
-  - **Local Archiving**: Archives processed files with timestamps
-  - **Resilient Processing**: Includes retry logic for transient failures
-  - **Flexible Callback System**: Customizable status callbacks for integration with any system
-  - **Graceful Shutdown**: Handles termination signals for clean shutdowns
-  - **Comprehensive Logging**: Detailed, configurable logging with rotation
-  - **Docker Ready**: Optimized for containerized deployments
+  - **Comprehensive Logging**: Detailed, configurable logging
 
 ## 📋 Installation
 
@@ -22,8 +19,8 @@ A robust, production-ready service for automated processing of MSSQL backup file
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/mssql-backup-ingestion.git
-cd mssql-backup-ingestion
+git clone https://github.com/yourusername/mssql-backup-tool.git
+cd mssql-backup-tool
 
 # Install dependencies
 pip install -r requirements.txt
@@ -33,13 +30,14 @@ pip install -r requirements.txt
 
 ```bash
 # Build the Docker image
-docker build -t mssql-backup-ingestion -f Dockerfile .
+docker build -t mssql-backup-tool -f Dockerfile .
 
-# Run the container
-docker run -v /path/to/backups:/data/backups \
-           -e MSSQL_SERVER=mssql \
-           -e MSSQL_PASSWORD=yourpassword \
-           mssql-backup-ingestion
+# Run the container with a command
+cat restore_command.json | docker run -i \
+    -v /path/to/backups:/data/backups \
+    -e MSSQL_SERVER=mssql \
+    -e MSSQL_PASSWORD=yourpassword \
+    mssql-backup-tool
 ```
 
 ## 🛠️ Configuration
@@ -48,12 +46,10 @@ Configuration is handled through environment variables or a `.env` file:
 
 ### Core Settings
 
-| Environment Variable   | Description                               | Default          |
-| ---------------------- | ----------------------------------------- | ---------------- |
-| `BACKUP_WATCH_DIR`     | Directory to monitor for new backup files | `/data/backups`  |
-| `BACKUP_SHARED_DIR`    | Shared directory for database backups     | `/shared_backup` |
-| `APP_POLLING_INTERVAL` | Interval in seconds between file checks   | `1.0`            |
-| `APP_LOG_LEVEL`        | Logging level                             | `INFO`           |
+| Environment Variable | Description                           | Default          |
+| -------------------- | ------------------------------------- | ---------------- |
+| `BACKUP_SHARED_DIR`  | Shared directory for database backups | `/shared_backup` |
+| `LOG_LEVEL`          | Logging level                         | `INFO`           |
 
 ### MSSQL Settings
 
@@ -65,85 +61,60 @@ Configuration is handled through environment variables or a `.env` file:
 | `MSSQL_PASSWORD`     | MSSQL password                | (Required)  |
 | `MSSQL_TIMEOUT`      | Connection timeout in seconds | `60`        |
 
-### Logging Settings
-
-| Environment Variable | Description                   | Default |
-| -------------------- | ----------------------------- | ------- |
-| `LOG_LEVEL`          | Logging level                 | `INFO`  |
-| `LOG_DIRECTORY`      | Directory for log files       | `logs`  |
-| `LOG_MAX_SIZE_MB`    | Maximum log file size in MB   | `10`    |
-| `LOG_BACKUP_COUNT`   | Number of log backups to keep | `5`     |
-| `LOG_JSON_FORMAT`    | Use JSON formatted logs       | `true`  |
-
 ## 📝 Usage
 
-### Running as a Service
+### Using the CLI Tool
+
+The tool accepts JSON commands via STDIN and outputs JSON results via STDOUT:
 
 ```bash
-# Run with default settings
-python -m ingestion_service
+# Restore a local backup file
+echo '{"command": "restore", "resource": "file:///path/to/backup.dat", "options": {"database_name": "my_database"}}' | python -m tool
 
-# Run with custom settings
-BACKUP_WATCH_DIR=/path/to/backups MSSQL_SERVER=localhost python -m ingestion_service
+# Restore a backup from an HTTP URL
+echo '{"command": "restore", "resource": "https://example.com/backup.rar"}' | python -m tool
 ```
 
-### Programmatic Usage
+### Command Format
 
-```python
-from ingestion_service.core.monitor import BackupMonitor
-
-# Initialize the monitor
-monitor = BackupMonitor(
-    mssql_settings=mssql_settings,
-    watch_directory="/path/to/backups",
-    shared_backup_dir="/shared_backup",
-    polling_interval=1.0,
-    file_patterns=[".rar", ".dat"]
-)
-
-# Start monitoring (this will block until stopped)
-monitor.start()
+```json
+{
+  "command": "restore",
+  "resource": "resource_uri",
+  "options": {
+    "database_name": "optional_target_name",
+    "archive_processed": true
+  }
+}
 ```
 
-### Using the Callback API
+### Resource URI Formats
 
-The service provides a flexible callback system for status updates:
+  - Local file: `file:///path/to/backup.dat`
+  - HTTP(S): `https://example.com/backup.rar`
+  - S3: `s3://bucket/path/to/backup.dat?region=us-west-2`
 
-```python
-def my_status_callback(filename, status, details, metadata=None):
-    """Custom status callback for processing events."""
-    print(f"File {filename} status: {status} - {details}")
-    if metadata:
-        print(f"Additional metadata: {metadata}")
+### Output Format
 
-    # Send to a database, API, message queue, etc.
-    if status == "completed":
-        notify_admin(f"Database {metadata.get('database_name')} restored successfully")
-    elif status == "failed":
-        alert_system(f"Backup processing failed: {details}")
+The tool outputs structured JSON messages:
 
-# Use the callback with the monitor
-monitor = BackupMonitor(
-    # ... other settings ...
-    status_callback=my_status_callback
-)
+```json
+{
+  "type": "progress|result|error",
+  "timestamp": "ISO8601 timestamp",
+  "status": "processing|success|failed",
+  "message": "Human-readable message",
+  "data": {
+    /* type-specific payload */
+  }
+}
 ```
 
-The callback system uses the following status codes:
+### Exit Codes
 
-| Status       | Description                                       |
-| ------------ | ------------------------------------------------- |
-| `processing` | File has been detected and processing has started |
-| `completed`  | File processing completed successfully            |
-| `failed`     | Processing failed with an error                   |
-
-## 🔒 Security Considerations
-
-  - Secure your SQL Server passwords
-  - Use environment variables rather than hardcoded credentials
-  - Consider using a secrets management system in production
-  - Implement network-level security for service communication
-  - Review file permissions on backup directories
+  - `0`: Success
+  - `1`: General error
+  - `130`: Interrupted (SIGINT)
 
 ## 🐳 Docker Compose Example
 
@@ -155,25 +126,26 @@ services:
     image: mcr.microsoft.com/mssql/server:2019-latest
     environment:
       - ACCEPT_EULA=Y
-      - SA_PASSWORD=${MSSQL_PASSWORD}
+      - SA_PASSWORD=${MSSQL_PASSWORD:-YourPassword123!}
     ports:
-      - "${MSSQL_PORT}:1433"
+      - "${MSSQL_PORT:-1433}:1433"
     volumes:
       - ./data/mssql:/var/opt/mssql/data
       - shared_backup_volume:/shared_backup
 
-  ingestion:
+  backup-tool:
     build:
       context: .
       dockerfile: Dockerfile
     volumes:
-      - ${BACKUP_WATCH_DIR:-./data/backups}:/data/backups
+      - ./data_backups:/data/input
       - shared_backup_volume:/shared_backup
     environment:
       - MSSQL_SERVER=mssql
-      - MSSQL_PASSWORD=${MSSQL_PASSWORD}
-    depends_on:
-      - mssql
+      - MSSQL_USER=sa
+      - MSSQL_PASSWORD=${MSSQL_PASSWORD:-YourPassword123!}
+      - BACKUP_SHARED_DIR=/shared_backup
+    # This service is designed to be invoked via Docker exec with STDIN
 
 volumes:
   shared_backup_volume:
@@ -181,34 +153,8 @@ volumes:
 
 ## 🤝 Contributing
 
-Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+Contributions are welcome!
 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 📊 Architecture
-
-```
-┌─────────────────┐         ┌─────────────────┐
-│                 │         │                 │
-│  Backup Files   │────────▶│  Watch Directory│
-│                 │         │                 │
-└─────────────────┘         └────────┬────────┘
-                                     │
-                                     ▼
-                            ┌─────────────────┐
-                            │                 │
-                            │  Ingestion      │
-                            │  Service        │
-                            │                 │
-                            └────────┬────────┘
-                                     │
-                                     ▼
-┌─────────────────┐         ┌─────────────────┐
-│                 │         │                 │
-│  Status Updates │◀────────│  MSSQL Server   │
-│  (Callbacks)    │         │                 │
-└─────────────────┘         └─────────────────┘
-```
-

@@ -1,16 +1,13 @@
 """
-Configuration settings for the ingestion service.
+Configuration settings for the MSSQL backup tool.
 
 This module defines all configuration settings using Pydantic classes.
-It handles environment variable loading and validation.
 """
 
-import os
-from pathlib import Path
-from typing import Any, Dict, List
+from typing import List
 
 from dotenv import load_dotenv
-from pydantic import Field, SecretStr, validator
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Load environment variables
@@ -18,15 +15,7 @@ load_dotenv()
 
 
 class MSSQLSettings(BaseSettings):
-    """SQL Server connection settings.
-
-    Attributes:
-        server: SQL Server hostname or IP address
-        port: SQL Server port number
-        user: SQL Server authentication username
-        password: SQL Server authentication password
-        timeout: Connection timeout in seconds
-    """
+    """SQL Server connection settings."""
 
     server: str = Field(default="localhost", description="MSSQL server address")
     port: str = Field(default="1433", description="MSSQL server port")
@@ -38,31 +27,19 @@ class MSSQLSettings(BaseSettings):
         env_prefix="MSSQL_", extra="ignore", env_file=".env"
     )
 
-    def get_connection_params(self) -> dict:
-        """Generate connection parameters for pymssql.
-
-        Returns:
-            dict: Connection parameters
-        """
+    def get_connection_dict(self) -> dict:
+        """Get connection parameters as a dictionary."""
         return {
             "server": self.server,
             "port": self.port,
             "user": self.user,
             "password": self.password.get_secret_value(),
-            "timeout": self.timeout
+            "timeout": self.timeout,
         }
 
 
 class BackupSettings(BaseSettings):
-    """Backup processing settings.
-
-    Attributes:
-        shared_dir: Shared directory path for database backups
-        file_patterns: List of file extensions to monitor
-        archive_processed: Whether to archive processed files
-        retry_attempts: Number of retry attempts for failed operations
-        retry_delay: Delay between retry attempts in seconds
-    """
+    """Backup processing settings."""
 
     shared_dir: str = Field(
         default="/shared_backup",
@@ -87,15 +64,7 @@ class BackupSettings(BaseSettings):
 
 
 class LoggingSettings(BaseSettings):
-    """Logging configuration settings.
-
-    Attributes:
-        level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        directory: Directory to store log files
-        max_size_mb: Maximum size of log file before rotation
-        backup_count: Number of rotated log files to keep
-        json_format: Whether to use JSON formatted logs
-    """
+    """Logging configuration settings."""
 
     level: str = Field(default="INFO", description="Logging level")
     directory: str = Field(default="logs", description="Log directory")
@@ -107,35 +76,24 @@ class LoggingSettings(BaseSettings):
         env_prefix="LOG_", extra="ignore", env_file=".env"
     )
 
-    @validator("level")
-    def validate_log_level(cls, v):
+    def validate_log_level(self) -> str:
         """Validate that the log level is one of the supported values."""
         allowed_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-        if v.upper() not in allowed_levels:
+        if self.level.upper() not in allowed_levels:
             raise ValueError(f"Log level must be one of: {', '.join(allowed_levels)}")
-        return v.upper()
+        return self.level.upper()
 
 
 class AppSettings(BaseSettings):
-    """Application settings.
-
-    Attributes:
-        watch_dir: Directory to monitor for backup files
-        polling_interval: Interval in seconds between file system checks
-        log_level: Application logging level
-        mssql: SQL Server connection settings
-        backup: Backup processing settings
-        logging: Logging configuration settings
-    """
+    """Application settings."""
 
     watch_dir: str = Field(
-        default=os.environ.get("BACKUP_WATCH_DIR", "/data/backups"),
+        default="/data/backups",
         description="Directory to watch for backup files",
     )
     polling_interval: float = Field(
         default=1.0, description="Polling interval in seconds"
     )
-    log_level: str = Field(default="INFO", description="Logging level")
 
     # Component settings
     mssql: MSSQLSettings = Field(default_factory=MSSQLSettings)
@@ -146,48 +104,43 @@ class AppSettings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
+    def get_logging_config(self) -> dict:
+        """Get logging configuration dictionary."""
+        return {
+            "version": 1,
+            "disable_existing_loggers": False,
+            "formatters": {
+                "standard": {
+                    "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+                },
+                "json": {
+                    "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
+                    "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+                },
+            },
+            "handlers": {
+                "console": {
+                    "class": "logging.StreamHandler",
+                    "formatter": "standard",
+                    "level": self.logging.validate_log_level(),
+                },
+                "file": {
+                    "class": "logging.handlers.RotatingFileHandler",
+                    "filename": f"{self.logging.directory}/tool.log",
+                    "maxBytes": self.logging.max_size_mb * 1024 * 1024,
+                    "backupCount": self.logging.backup_count,
+                    "formatter": "json" if self.logging.json_format else "standard",
+                    "level": self.logging.validate_log_level(),
+                },
+            },
+            "loggers": {
+                "": {
+                    "handlers": ["console", "file"],
+                    "level": self.logging.validate_log_level(),
+                }
+            },
+        }
 
-# Instantiate settings
+
+# Create global settings instance
 settings = AppSettings()
-
-# Base paths
-BASE_DIR = Path(__file__).parent.parent
-WATCH_DIR = settings.watch_dir
-
-# For backward compatibility
-MSSQL_CONFIG = {
-    "server": settings.mssql.server,
-    "port": settings.mssql.port,
-    "user": settings.mssql.user,
-    "password": settings.mssql.password.get_secret_value(),
-    "timeout": settings.mssql.timeout,
-}
-
-# Logging configuration
-LOGGING_CONFIG: Dict[str, Any] = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "formatters": {
-        "standard": {"format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s"},
-        "json": {
-            "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
-            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
-        },
-    },
-    "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-            "formatter": "standard",
-            "level": settings.log_level,
-        },
-        "file": {
-            "class": "logging.handlers.RotatingFileHandler",
-            "filename": f"{settings.logging.directory}/ingestion.log",
-            "maxBytes": settings.logging.max_size_mb * 1024 * 1024,
-            "backupCount": settings.logging.backup_count,
-            "formatter": "json" if settings.logging.json_format else "standard",
-            "level": settings.log_level,
-        },
-    },
-    "loggers": {"": {"handlers": ["console", "file"], "level": settings.log_level}},
-}

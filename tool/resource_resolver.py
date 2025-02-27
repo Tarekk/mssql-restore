@@ -9,7 +9,6 @@ import os
 import tempfile
 import time
 import urllib.parse
-from typing import Optional
 
 import requests
 
@@ -17,41 +16,17 @@ logger = logging.getLogger(__name__)
 
 
 class ResourceResolver:
-    """
-    Resolves resource URIs to local file paths.
+    """Resolves resource URIs to local file paths."""
 
-    Supports various URI schemes:
-    - file:///path/to/backup.dat - Local file path
-    - http(s)://host/path - HTTP(S) URL
-    - s3://bucket/key - S3 object (requires boto3)
-    """
-
-    def __init__(self, temp_dir: Optional[str] = None):
-        """
-        Initialize resolver with optional temporary directory.
-
-        Args:
-            temp_dir: Directory for temporary files (default: system temp)
-        """
+    def __init__(self, temp_dir: str = None):
+        """Initialize resolver with optional temporary directory."""
         self.temp_dir = (
             temp_dir or os.environ.get("TOOL_TEMP_DIR") or tempfile.gettempdir()
         )
         os.makedirs(self.temp_dir, exist_ok=True)
 
     def resolve(self, resource_uri: str) -> str:
-        """
-        Resolve a resource URI to a local file path.
-
-        Args:
-            resource_uri: Resource URI to resolve
-
-        Returns:
-            str: Local file path
-
-        Raises:
-            ValueError: For unsupported or invalid URIs
-            IOError: For resource access errors
-        """
+        """Resolve a resource URI to a local file path."""
         # Parse the URI
         parsed = urllib.parse.urlparse(resource_uri)
 
@@ -66,18 +41,7 @@ class ResourceResolver:
             raise ValueError(f"Unsupported resource scheme: {parsed.scheme}")
 
     def _resolve_file(self, parsed_uri: urllib.parse.ParseResult) -> str:
-        """
-        Resolve a file:// URI to a local path.
-
-        Args:
-            parsed_uri: Parsed URI object
-
-        Returns:
-            str: Local file path
-
-        Raises:
-            FileNotFoundError: If file doesn't exist
-        """
+        """Resolve a file:// URI to a local path."""
         # Convert file URI to local path
         if parsed_uri.netloc:
             # Handle Windows UNC paths or non-standard file URIs
@@ -95,18 +59,7 @@ class ResourceResolver:
         return path
 
     def _resolve_http(self, parsed_uri: urllib.parse.ParseResult) -> str:
-        """
-        Resolve an HTTP(S) URI by downloading to a local file.
-
-        Args:
-            parsed_uri: Parsed URI object
-
-        Returns:
-            str: Local file path
-
-        Raises:
-            IOError: For download errors
-        """
+        """Resolve an HTTP(S) URI by downloading to a local file."""
         url = parsed_uri.geturl()
         logger.info(f"Downloading resource from {url}")
 
@@ -128,19 +81,7 @@ class ResourceResolver:
             raise IOError(f"Failed to download {url}: {str(e)}")
 
     def _resolve_s3(self, parsed_uri: urllib.parse.ParseResult) -> str:
-        """
-        Resolve an S3 URI by downloading to a local file.
-
-        Args:
-            parsed_uri: Parsed URI object
-
-        Returns:
-            str: Local file path
-
-        Raises:
-            ImportError: If boto3 is not installed
-            IOError: For S3 access errors
-        """
+        """Resolve an S3 URI by downloading to a local file."""
         try:
             import boto3
         except ImportError:
