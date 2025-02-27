@@ -1,1 +1,0 @@
-"""Core functionality for the ingestion service."""
