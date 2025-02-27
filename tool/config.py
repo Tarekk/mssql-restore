@@ -7,7 +7,7 @@ It handles environment variable loading and validation.
 
 import os
 from pathlib import Path
-from typing import Dict, Optional, List, Any
+from typing import Any, Dict, List
 
 from dotenv import load_dotenv
 from pydantic import Field, SecretStr, validator
@@ -19,75 +19,68 @@ load_dotenv()
 
 class MSSQLSettings(BaseSettings):
     """SQL Server connection settings.
-    
+
     Attributes:
         server: SQL Server hostname or IP address
         port: SQL Server port number
         user: SQL Server authentication username
         password: SQL Server authentication password
-        driver: ODBC Driver name, varies by system
         timeout: Connection timeout in seconds
     """
+
     server: str = Field(default="localhost", description="MSSQL server address")
     port: str = Field(default="1433", description="MSSQL server port")
     user: str = Field(default="sa", description="MSSQL username")
     password: SecretStr = Field(..., description="MSSQL password")
-    driver: str = Field(
-        default="{ODBC Driver 18 for SQL Server}", description="MSSQL ODBC driver"
-    )
     timeout: int = Field(default=60, description="Connection timeout in seconds")
 
     model_config = SettingsConfigDict(
         env_prefix="MSSQL_", extra="ignore", env_file=".env"
     )
-    
-    def get_connection_string(self) -> str:
-        """Generate a connection string for pyodbc.
-        
+
+    def get_connection_params(self) -> dict:
+        """Generate connection parameters for pymssql.
+
         Returns:
-            str: A formatted connection string
+            dict: Connection parameters
         """
-        return (
-            f"DRIVER={self.driver};"
-            f"SERVER={self.server},{self.port};"
-            f"UID={self.user};"
-            f"PWD={self.password.get_secret_value()};"
-            f"TrustServerCertificate=yes;"
-            f"Connection Timeout={self.timeout}"
-        )
+        return {
+            "server": self.server,
+            "port": self.port,
+            "user": self.user,
+            "password": self.password.get_secret_value(),
+            "timeout": self.timeout
+        }
 
 
 class BackupSettings(BaseSettings):
     """Backup processing settings.
-    
+
     Attributes:
         shared_dir: Shared directory path for database backups
         file_patterns: List of file extensions to monitor
-        archive_processed: Whether to archive processed files 
+        archive_processed: Whether to archive processed files
         retry_attempts: Number of retry attempts for failed operations
         retry_delay: Delay between retry attempts in seconds
     """
+
     shared_dir: str = Field(
-        default="/shared_backup", 
-        description="Shared directory for database backup files"
+        default="/shared_backup",
+        description="Shared directory for database backup files",
     )
     file_patterns: List[str] = Field(
-        default=[".rar", ".dat"], 
-        description="File extensions to monitor"
+        default=[".rar", ".dat"], description="File extensions to monitor"
     )
     archive_processed: bool = Field(
-        default=True,
-        description="Archive processed files after successful processing"
+        default=True, description="Archive processed files after successful processing"
     )
     retry_attempts: int = Field(
-        default=3,
-        description="Number of retry attempts for failed operations"
+        default=3, description="Number of retry attempts for failed operations"
     )
     retry_delay: int = Field(
-        default=5,
-        description="Delay between retry attempts in seconds"
+        default=5, description="Delay between retry attempts in seconds"
     )
-    
+
     model_config = SettingsConfigDict(
         env_prefix="BACKUP_", extra="ignore", env_file=".env"
     )
@@ -95,7 +88,7 @@ class BackupSettings(BaseSettings):
 
 class LoggingSettings(BaseSettings):
     """Logging configuration settings.
-    
+
     Attributes:
         level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
         directory: Directory to store log files
@@ -103,16 +96,17 @@ class LoggingSettings(BaseSettings):
         backup_count: Number of rotated log files to keep
         json_format: Whether to use JSON formatted logs
     """
+
     level: str = Field(default="INFO", description="Logging level")
     directory: str = Field(default="logs", description="Log directory")
     max_size_mb: int = Field(default=10, description="Max log file size in MB")
     backup_count: int = Field(default=5, description="Number of log backups to keep")
     json_format: bool = Field(default=True, description="Use JSON formatted logs")
-    
+
     model_config = SettingsConfigDict(
         env_prefix="LOG_", extra="ignore", env_file=".env"
     )
-    
+
     @validator("level")
     def validate_log_level(cls, v):
         """Validate that the log level is one of the supported values."""
@@ -124,7 +118,7 @@ class LoggingSettings(BaseSettings):
 
 class AppSettings(BaseSettings):
     """Application settings.
-    
+
     Attributes:
         watch_dir: Directory to monitor for backup files
         polling_interval: Interval in seconds between file system checks
@@ -133,13 +127,13 @@ class AppSettings(BaseSettings):
         backup: Backup processing settings
         logging: Logging configuration settings
     """
+
     watch_dir: str = Field(
-        default=os.environ.get('BACKUP_WATCH_DIR', '/data/backups'),
-        description="Directory to watch for backup files"
+        default=os.environ.get("BACKUP_WATCH_DIR", "/data/backups"),
+        description="Directory to watch for backup files",
     )
     polling_interval: float = Field(
-        default=1.0,
-        description="Polling interval in seconds"
+        default=1.0, description="Polling interval in seconds"
     )
     log_level: str = Field(default="INFO", description="Logging level")
 
@@ -166,7 +160,6 @@ MSSQL_CONFIG = {
     "port": settings.mssql.port,
     "user": settings.mssql.user,
     "password": settings.mssql.password.get_secret_value(),
-    "driver": settings.mssql.driver,
     "timeout": settings.mssql.timeout,
 }
 
